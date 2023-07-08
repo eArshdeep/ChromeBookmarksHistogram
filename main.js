@@ -1,23 +1,76 @@
 /**
- * Hostname Frequency in Chrome Bookmarks
- * 
- * Checks the frequency of hostnames of bookmarks from a Chrome bookmarks data file.
- * This is the file that is in JSON format, not the HTML export you attain from within
- * the browser.
- * 
  * Arshdeep Padda
  * 5 July 2023
  * Node 18
- */
+*/
 
+const fs = require("fs");
+const os = require("os");
+const urlModule = require('url');
 
-var fs = require("fs");
-var URL = require('url');
+// *** *** *** *** *** *** *** *** *** *** //
+// *** *** Find Bookmarks File Path *** ** //
+// *** *** *** *** *** *** *** *** *** *** //
 
-let data = JSON.parse(fs.readFileSync("./Bookmarks"));
-let bookmarks = data["roots"]["other"];
+let path = undefined;
+if (process.argv.length >= 3)
+    path = process.argv[2];
+else if (process.platform == "win32")
+    path = os.homedir() + "\\Local\\Google\\User Data\\Default\\Bookmarks";
+else if (process.platform == "darwin")
+    path = os.homedir() + "/Library/Application Support/Google/Chrome/Default/Bookmarks";
+else
+{
+    let homedir = os.homedir();
+    if (fs.existsSync(homedir + "/.config/google-chrome/Default/Bookmarks"))
+        path = homedir + "/.config/google-chrome/Default/Bookmarks";
+    else if (fs.existsSync(homedir + ".config/chromium/Default/Bookmarks"))
+        path = homedir + ".config/chromium/Default/Bookmarks";
+    else
+    {
+        console.log("Unable to locate Bookmarks file. Please provide path manually.")
+        process.exit(99);
+    }
+}
+
+// *** *** *** *** *** *** *** *** *** *** //
+// *** *** Open File *** *** *** *** *** * //
+// *** *** *** *** *** *** *** *** *** *** //
+
+let data;
+try
+{
+    let file = fs.readFileSync(path);
+    data = JSON.parse(file);
+}
+catch (error)
+{
+    switch (error.code)
+    {
+        case "ENOENT":
+            console.log("Error - Could not find Bookmarks file.");
+            break;
+        case "EISDIR":
+            console.log("Error - Path is a directory.");
+            break;
+        case "EACESS":
+            console.log("Error - Invalid access permissions.");
+            break;
+        case "EPERM":
+            console.log("Error - Invalid access permissions.");
+            break;
+        default:
+            console.log("An error occurred attempting to open the 'Bookmarks' file.");
+    }
+    process.exit(99);
+}
+
+// *** *** *** *** *** *** *** *** *** *** //
+// *** *** Traverse *** *** *** *** *** ** //
+// *** *** *** *** *** *** *** *** *** *** //
+
 let histogram = new Map();
-let folderCount = new Map();
+let folderCount = [];
 
 function traverse_root (root)
 {
@@ -25,7 +78,7 @@ function traverse_root (root)
     root["children"].forEach(child => {
         if (child.type == "url")
         {
-            let url = URL.parse(child.url).hostname;
+            let url = urlModule.parse(child.url).hostname;
             if (histogram.has(url)) histogram.set(url, histogram.get(url) + 1);
             else histogram.set(url, 1);
             count += 1;
@@ -36,17 +89,23 @@ function traverse_root (root)
             traverse_root(child);
         }
     });
-    folderCount.set(root.name, count);
+    folderCount.push([root.name, count]);
 }
 
 traverse_root(data["roots"]["bookmark_bar"]);
 traverse_root(data["roots"]["other"]);
 
-histogram = new Map([...histogram.entries()].sort((a, b) => b[1] - a[1]));
+// *** *** *** *** *** *** *** *** *** *** //
+// *** *** Report *** *** *** *** *** ***  //
+// *** *** *** *** *** *** *** *** *** *** //
 
-// Report Frequency
-console.log("Domain Frequency:")
+const descending = (a, b) => b[1] - a[1];
+
+histogram = new Map([...histogram.entries()].sort(descending));
+folderCount = folderCount.sort(descending);
+
 let total = 0;
+console.log("Domain Frequency:")
 histogram.forEach((freq, url, map) => {
     console.log(url, freq);
     total += freq;
@@ -54,6 +113,6 @@ histogram.forEach((freq, url, map) => {
 console.log("total:", total);
 
 console.log("\nFolders:");
-folderCount.forEach((count, folder, map) => {
-    console.log(folder, count);
+folderCount.forEach((folder, index, arr) => {
+    console.log(folder[0], folder[1]);
 });
